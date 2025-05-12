@@ -728,8 +728,11 @@ def nonblank_lines(f):
 def get_annotation_paths(img_path, annotation_formats):
     annotation_paths = []
     for ann_dir, ann_ext in annotation_formats.items():
-        new_path = os.path.join(OUTPUT_DIR, ann_dir)
-        new_path = os.path.join(new_path, os.path.basename(os.path.normpath(img_path))) #img_path.replace(INPUT_DIR, new_path, 1)
+        rel_path = os.path.relpath(os.path.dirname(img_path), INPUT_DIR)
+        new_dir = os.path.join(OUTPUT_DIR, ann_dir, rel_path)
+        if not os.path.exists(new_dir):
+            os.makedirs(new_dir)
+        new_path = os.path.join(new_dir, os.path.basename(img_path))
         pre_path, img_ext = os.path.splitext(new_path)
         new_path = new_path.replace(img_ext, ann_ext, 1)
         annotation_paths.append(new_path)
@@ -973,34 +976,38 @@ if __name__ == '__main__':
     # load all images and videos (with multiple extensions) from a directory using OpenCV
     IMAGE_PATH_LIST = []
     VIDEO_NAME_DICT = {}
-    for f in sorted(os.listdir(INPUT_DIR), key = natural_sort_key):
-        f_path = os.path.join(INPUT_DIR, f)
-        if os.path.isdir(f_path):
-            # skip directories
-            continue
-        # check if it is an image
-        test_img = cv2.imread(f_path)
-        if test_img is not None:
-            IMAGE_PATH_LIST.append(f_path)
-        else:
-            # test if it is a video
-            test_video_cap = cv2.VideoCapture(f_path)
-            n_frames = int(test_video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            test_video_cap.release()
-            if n_frames > 0:
-                # it is a video
-                desired_img_format = '.jpg'
-                video_frames_path, video_name_ext = convert_video_to_images(f_path, n_frames, desired_img_format)
-                # add video frames to image list
-                frame_list = sorted(os.listdir(video_frames_path), key = natural_sort_key)
-                ## store information about those frames
-                first_index = len(IMAGE_PATH_LIST)
-                last_index = first_index + len(frame_list) # exclusive
-                indexes_dict = {}
-                indexes_dict['first_index'] = first_index
-                indexes_dict['last_index'] = last_index
-                VIDEO_NAME_DICT[video_name_ext] = indexes_dict
-                IMAGE_PATH_LIST.extend((os.path.join(video_frames_path, frame) for frame in frame_list))
+
+    image_extensions = {'.jpg', '.jpeg', '.png', '.bmp'}
+    video_extensions = {'.mp4', '.avi', '.mov', '.mkv'}
+
+    print("Searching input directory...")
+    for root, _, files in sorted(os.walk(INPUT_DIR), key=lambda x: natural_sort_key(x[0])):
+        for f in sorted(files, key=natural_sort_key):
+            f_path = os.path.join(root, f)
+            file_ext = os.path.splitext(f)[1].lower()
+
+            # Check if image
+            if file_ext in image_extensions:
+                test_img = cv2.imread(f_path)
+                if test_img is not None:
+                    IMAGE_PATH_LIST.append(f_path)
+
+            # Check if video
+            elif file_ext in video_extensions:
+                test_video_cap = cv2.VideoCapture(f_path)
+                n_frames = int(test_video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                test_video_cap.release()
+                if n_frames > 0:
+                    # extract video frames
+                    desired_img_format = '.jpg'
+                    video_frames_path, video_name_ext = convert_video_to_images(f_path, n_frames, desired_img_format)
+                    frame_list = sorted(os.listdir(video_frames_path), key=natural_sort_key)
+                    first_index = len(IMAGE_PATH_LIST)
+                    last_index = first_index + len(frame_list)  # exclusive
+                    indexes_dict = {'first_index': first_index, 'last_index': last_index}
+                    VIDEO_NAME_DICT[video_name_ext] = indexes_dict
+                    IMAGE_PATH_LIST.extend(os.path.join(video_frames_path, frame) for frame in frame_list)
+
     last_img_index = len(IMAGE_PATH_LIST) - 1
 
     # create output directories
@@ -1016,21 +1023,24 @@ if __name__ == '__main__':
             if not os.path.exists(new_video_dir):
                 os.makedirs(new_video_dir)
 
-    # create empty annotation files for each image, if it doesn't exist already
-    for img_path in IMAGE_PATH_LIST:
-        # image info for the .xml file
-        test_img = cv2.imread(img_path)
-        abs_path = os.path.abspath(img_path)
-        folder_name = os.path.dirname(img_path)
-        image_name = os.path.basename(img_path)
-        img_height, img_width, depth = (str(number) for number in test_img.shape)
+    with tqdm(total=len(IMAGE_PATH_LIST), desc="Creating annotation files") as pbar:
+        for img_path in IMAGE_PATH_LIST:
+            test_img = cv2.imread(img_path)
+            abs_path = os.path.abspath(img_path)
+            folder_name = os.path.dirname(img_path)
+            image_name = os.path.basename(img_path)
+            img_height, img_width, depth = (str(number) for number in test_img.shape)
 
-        for ann_path in get_annotation_paths(img_path, annotation_formats):
-            if not os.path.isfile(ann_path):
-                if '.txt' in ann_path:
-                    open(ann_path, 'a').close()
-                elif '.xml' in ann_path:
-                    create_PASCAL_VOC_xml(ann_path, abs_path, folder_name, image_name, img_height, img_width, depth)
+            annotation_paths = get_annotation_paths(img_path, annotation_formats)
+            all_exist = all(os.path.isfile(ann_path) for ann_path in annotation_paths)
+            if not all_exist:
+                for ann_path in annotation_paths:
+                    if not os.path.isfile(ann_path):
+                        if '.txt' in ann_path:
+                            open(ann_path, 'a').close()
+                        elif '.xml' in ann_path:
+                            create_PASCAL_VOC_xml(ann_path, abs_path, folder_name, image_name, img_height, img_width, depth)
+            pbar.update(1)
 
     # load class list
     with open('class_list.txt') as f:
