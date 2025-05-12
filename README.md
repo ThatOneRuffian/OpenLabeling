@@ -53,7 +53,7 @@ git clone --recurse-submodules git@github.com:Cartucho/OpenLabeling.git
 
 You need to install:
 
-- [Python](https://www.python.org/downloads/)
+- [Python3.8](https://www.python.org/downloads/)
 - [OpenCV](https://opencv.org/) version >= 3.0
     1. `python -mpip install -U pip`
     1. `python -mpip install -U opencv-python`
