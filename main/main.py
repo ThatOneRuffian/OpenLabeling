@@ -1057,7 +1057,13 @@ if __name__ == '__main__':
     cv2.setMouseCallback(WINDOW_NAME, mouse_listener)
 
     # selected image
-    cv2.createTrackbar(TRACKBAR_IMG, WINDOW_NAME, 0, last_img_index, set_img_index)
+    if last_img_index <= -1:
+        print(f'Input dir should have at least one image to begin.')
+        exit(1)
+    elif last_img_index == 0:
+        pass
+    elif last_img_index > 0:
+        cv2.createTrackbar(TRACKBAR_IMG, WINDOW_NAME, 0, last_img_index, set_img_index)
 
     # selected class
     if last_class_index != 0:
